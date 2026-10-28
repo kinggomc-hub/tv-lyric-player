@@ -1,0 +1,12 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.tv.lyricplayer'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.tv.lyricplayer'
+        minSdk 23
+        targetSdk 28   // 구형 저장소 모드 유지: USB 직접 읽기용
+        versionCode 2
+        versionName '2.0'
+    }
+}

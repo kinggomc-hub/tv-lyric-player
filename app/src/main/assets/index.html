@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TV 가사 플레이어</title>
+<style>
+:root { --fg: #fff; --dim: #a0a0a0; --line: #444; --focus: #ffcc00; }
+html, body { width: 100vw; height: 100vh; margin: 0; padding: 0; background: #000; color: var(--fg); font-family: sans-serif; overflow: hidden; user-select: none; cursor: none; }
+button, .btn, .tr, input[type="range"] { outline: none; border-radius: 4px; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+button:focus, .btn:focus, .tr:focus, input[type="range"]:focus { outline: 4px solid var(--focus) !important; outline-offset: 4px; transform: scale(1.06); box-shadow: 0 0 25px rgba(255, 204, 0, 0.6); z-index: 10; }
+#stage { position: fixed; inset: 0; perspective: 900px; overflow: hidden; z-index: 1; }
+.line { position: absolute; inset: 0; margin: auto; width: max-content; height: max-content; max-width: 88vw; text-align: center; font-weight: 700; line-height: 1.25; color: #fff; text-shadow: 0 4px 15px rgba(0,0,0,0.8); }
+#panel { position: fixed; inset: 0; display: flex; flex-direction: row; background: rgba(10, 10, 10, 0.95); padding: 4vw 5vh; box-sizing: border-box; z-index: 10; gap: 3vw; }
+#panel-left { flex: 4; display: flex; flex-direction: column; justify-content: center; gap: 16px; border-right: 1px solid var(--line); padding-right: 2vw; }
+#panel-right { flex: 6; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+#panel h1 { font-size: 3.2vw; margin: 0; font-weight: 700; color: #fff; }
+#panel p { color: var(--dim); font-size: 1.2vw; line-height: 1.5; margin: 0; }
+#list { width: 100%; height: 65vh; overflow-y: auto; border: 1px solid var(--line); background: #141414; }
+.tr { padding: 16px 20px; border-bottom: 1px solid #282828; font-size: 1.3vw; display: flex; justify-content: space-between; align-items: center; }
+.tr.on { background: #fff; color: #000; font-weight: bold; }
+.tr small { color: var(--dim); font-size: 1vw; }
+.tr.on small { color: #555; }
+button, .btn { color: #fff; background: #202020; border: 2px solid #666; padding: 14px 24px; font-size: 1.3vw; font-weight: 600; text-align: center; }
+button:disabled { opacity: 0.3; }
+#bar { position: fixed; left: 3vw; right: 3vw; bottom: 2vh; padding: 14px 24px; display: flex; gap: 16px; align-items: center; background: rgba(18, 18, 18, 0.92); border: 1px solid #444; border-radius: 8px; z-index: 5; transition: opacity .4s; }
+body.idle #bar, body.idle #ttl, body.idle #quit { opacity: 0; pointer-events: none; }
+#bar button { font-size: 1.2vw; padding: 10px 18px; }
+#seek { flex: 1; height: 10px; accent-color: var(--focus); }
+#time { font-size: 1.2vw; color: #ccc; min-width: 130px; text-align: right; }
+#ttl { position: fixed; top: 3vh; left: 4vw; right: 4vw; font-size: 2vw; font-weight: 700; text-shadow: 0 3px 10px #000; z-index: 5; transition: opacity .4s; }
+#quit { position: fixed; top: 3vh; right: 4vw; z-index: 6; font-size: 1.3vw; }
+#pick, #files { display: none !important; }
+[hidden] { display: none !important; }
+#browser { position: fixed; inset: 0; z-index: 20; background: #0a0a0a; padding: 4vh 5vw; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; }
+#bpath { color: var(--dim); font-size: 1.3vw; word-break: break-all; }
+#blist { flex: 1; overflow-y: auto; border: 1px solid var(--line); background: #141414; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="panel">
+  <div id="panel-left">
+    <h1>TV 가사 플레이어</h1>
+    <p>USB 메모리 또는 로컬 폴더에서 음악 파일과 LRC 가사를 선택하세요.</p>
+    <button id="usb" tabindex="0">🔌 USB 폴더 탐색 (권장)</button>
+    <label class="btn" for="files" tabindex="0" id="pick">📂 USB / 파일 선택</label>
+    <input id="files" type="file" multiple accept="audio/*,.lrc,.txt,.mp3,.flac,.m4a,.wav,.ogg,.opus,.aac" hidden>
+    <div id="status" style="font-size:1.2vw; color:#ffeb3b;">파일을 선택해 주세요.</div>
+    <button id="shuf" tabindex="0">랜덤 재생: 꺼짐</button>
+    <button id="go" tabindex="0" disabled>▶ 재생 시작</button>
+    <button id="close" tabindex="0" hidden>가사 화면으로 복귀</button>
+  </div>
+  <div id="panel-right">
+    <div style="font-size: 1.2vw; color:#aaa;">재생 목록 (리모컨 방향키로 이동 및 OK)</div>
+    <div id="list"></div>
+  </div>
+</div>
+<div id="browser" hidden><div style="font-size:2vw;font-weight:700">USB 폴더 선택 (뒤로가기 = 상위 폴더)</div><div id="bpath"></div><div id="blist"></div></div>
+<div id="ttl" hidden></div>
+<button id="quit" tabindex="0" hidden>✕ 종료</button>
+<div id="bar" hidden>
+  <button id="prev" tabindex="0">⏮ 이전</button>
+  <button id="pp" tabindex="0">⏸ 일시정지</button>
+  <button id="next" tabindex="0">⏭ 다음</button>
+  <input id="seek" type="range" min="0" max="1000" value="0" tabindex="0">
+  <span id="time">0:00 / 0:00</span>
+  <button id="offm" tabindex="0">싱크 -</button>
+  <span id="off" style="font-size:1.2vw;">0.0s</span>
+  <button id="offp" tabindex="0">싱크 +</button>
+  <button id="files2" tabindex="0">📋 목록</button>
+</div>
+<audio id="au" preload="auto"></audio>
+<script>
+const $ = id => document.getElementById(id);
+const au = $('au'), stage = $('stage'), panel = $('panel'), bar = $('bar'), statusEl = $('status'), goBtn = $('go');
+let lines = [], tagOff = 0, userOff = 0, curIdx = -2;
+let tracks = [], order = [], pos = -1, shuffle = false, startIdx = null;
+const AUDIO_EXT = /\.(mp3|flac|m4a|wav|ogg|opus|aac|wma|aiff?)$/i;
+
+async function readText(file) {
+  const buf = file.url ? await new Promise((ok, no) => { const x = new XMLHttpRequest(); x.open('GET', file.url); x.responseType = 'arraybuffer'; x.onload = () => ok(x.response); x.onerror = no; x.send(); }) : await file.arrayBuffer();
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+  catch(e) { return new TextDecoder('euc-kr').decode(buf); }
+}
+
+function parseLRC(txt) {
+  const out = []; let off = 0;
+  for (const raw of txt.split(/\r?\n/)) {
+    const o = raw.match(/^\s*\[offset:\s*(-?\d+)\s*\]/i);
+    if (o) { off = +o[1]/1000; continue; }
+    const re = /\[(\d+):(\d+(?:[.:]\d+)?)\]/g; let m, last = 0; const ts = [];
+    while ((m = re.exec(raw))) { ts.push(+m[1]*60 + parseFloat(m[2].replace(':', '.'))); last = re.lastIndex; }
+    if (!ts.length) continue;
+    const text = raw.slice(last).replace(/<\d+:\d+(?:[.:]\d+)?>/g, '').trim();
+    ts.forEach(t => out.push({ t, text }));
+  }
+  out.sort((a,b) => a.t - b.t);
+  return { lines: out, off };
+}
+
+const norm = s => s.normalize('NFC').toLowerCase();
+const baseName = n => norm(n.replace(/\.[^.]+$/, ''));
+
+async function handleFiles(fileList) {
+  const files = [...fileList];
+  const lrcs = new Map();
+  files.forEach(f => { if (/\.(lrc|txt)$/i.test(f.name)) lrcs.set(baseName(f.name), f); });
+  files.filter(f => f.type.startsWith('audio/') || AUDIO_EXT.test(f.name))
+    .sort((a,b) => a.name.localeCompare(b.name, 'ko', { numeric: true }))
+    .forEach(f => {
+      if (tracks.some(t => t.audio.name === f.name && t.audio.size === f.size)) return;
+      tracks.push({ audio: f, lrc: null, title: f.name.replace(/\.[^.]+$/, '') });
+    });
+  tracks.forEach(t => { if (!t.lrc) { const l = lrcs.get(baseName(t.audio.name)); if (l) t.lrc = l; } });
+  buildOrder(0);
+  renderList();
+  if (tracks.length > 0) {
+    statusEl.textContent = `총 ${tracks.length}곡 불러옴 (가사 ${tracks.filter(t=>t.lrc).length}개)`;
+    goBtn.disabled = false;
+    goBtn.focus();
+  }
+}
+
+$('files').onchange = e => handleFiles(e.target.files);
+
+function renderList() {
+  const L = $('list'); L.textContent = '';
+  tracks.forEach((t, i) => {
+    const d = document.createElement('div');
+    d.className = 'tr' + (i === pos ? ' on' : '');
+    d.tabIndex = 0;
+    d.innerHTML = `<span>${t.title}</span><small>${t.lrc ? 'LRC 연동됨' : '가사 없음'}</small>`;
+    d.onclick = () => { startIdx = i; startPlay(); };
+    d.onkeydown = e => { if (e.key === 'Enter') d.click(); };
+    L.appendChild(d);
+  });
+}
+
+function buildOrder(first) {
+  order = tracks.map((_, i) => i);
+  if (shuffle) {
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    if (first != null) { order.splice(order.indexOf(first), 1); order.unshift(first); }
+  }
+  pos = first == null ? 0 : order.indexOf(first);
+}
+
+function loadTrack(i) {
+  const t = tracks[i]; if (!t) return;
+  if (au.src && au.src.startsWith('blob:')) URL.revokeObjectURL(au.src);
+  au.src = t.audio.url || URL.createObjectURL(t.audio);
+  lines = []; tagOff = 0; curIdx = -2;
+  stage.innerHTML = '';
+  au.play();
+  $('ttl').hidden = false;
+  $('ttl').textContent = `${t.title} (${pos + 1}/${tracks.length})`;
+  renderList();
+  if (t.lrc) {
+    readText(t.lrc).then(txt => {
+      const r = parseLRC(txt);
+      lines = r.lines; tagOff = r.off; curIdx = -2;
+    });
+  }
+}
+
+function nextTrack(d) {
+  if (!tracks.length) return;
+  pos = (pos + d + order.length) % order.length;
+  loadTrack(order[pos]);
+}
+
+function startPlay() {
+  panel.hidden = true;
+  bar.hidden = false;
+  $('quit').hidden = false;
+  $('close').hidden = false;
+  buildOrder(startIdx != null ? startIdx : 0);
+  loadTrack(order[pos]);
+  $('pp').focus();
+  poke();
+}
+
+goBtn.onclick = startPlay;
+$('pp').onclick = () => { au.paused ? au.play() : au.pause(); $('pp').textContent = au.paused ? '▶ 재생' : '⏸ 일시정지'; };
+$('next').onclick = () => nextTrack(1);
+$('prev').onclick = () => nextTrack(-1);
+au.onended = () => nextTrack(1);
+$('shuf').onclick = () => { shuffle = !shuffle; $('shuf').textContent = '랜덤 재생: ' + (shuffle ? '켜짐' : '꺼짐'); };
+$('files2').onclick = () => { panel.hidden = false; $('close').focus(); };
+$('close').onclick = () => { panel.hidden = true; $('pp').focus(); };
+$('quit').onclick = () => { au.pause(); window.AndroidUSB ? AndroidUSB.exit() : window.close(); };
+
+function fit(el) {
+  let s = Math.min(innerWidth, innerHeight * 1.5) * 0.12;
+  el.style.fontSize = s + 'px';
+  while (s > 24 && (el.offsetHeight > innerHeight * 0.75 || el.scrollWidth > innerHeight * 1.8)) {
+    s *= 0.92; el.style.fontSize = s + 'px';
+  }
+}
+
+function showLine(i) {
+  const L = lines[i]; if (!L || !L.text) return;
+  stage.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = 'line'; el.textContent = L.text;
+  stage.appendChild(el); fit(el);
+  el.animate([{ opacity: 0, transform: 'translateY(25px)' }, { opacity: 1, transform: 'none' }], { duration: 350 });
+}
+
+function findIdx(t) {
+  let lo = 0, hi = lines.length - 1, r = -1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1;
+    if (lines[m].t + tagOff + userOff <= t) { r = m; lo = m + 1; } else hi = m - 1;
+  }
+  return r;
+}
+
+function tick() {
+  requestAnimationFrame(tick);
+  if (lines.length && !au.paused) {
+    const i = findIdx(au.currentTime);
+    if (i !== curIdx) { curIdx = i; showLine(i); }
+  }
+  if (au.duration) {
+    $('seek').value = (au.currentTime / au.duration) * 1000;
+    const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+    $('time').textContent = `${fmt(au.currentTime)} / ${fmt(au.duration)}`;
+  }
+}
+requestAnimationFrame(tick);
+
+window.addEventListener('keydown', e => {
+  poke();
+  switch (e.key) {
+    case 'MediaPlayPause': $('pp').click(); break;
+    case 'MediaTrackNext': nextTrack(1); break;
+    case 'MediaTrackPrevious': nextTrack(-1); break;
+    case 'Escape': case 'Back': case 'BrowserBack':
+      if (!panel.hidden && tracks.length > 0) { e.preventDefault(); panel.hidden = true; $('pp').focus(); }
+      else if (panel.hidden) { e.preventDefault(); panel.hidden = false; $('close').focus(); }
+      break;
+    case 'ArrowLeft': if (panel.hidden && document.activeElement.tagName !== 'BUTTON') au.currentTime = Math.max(0, au.currentTime - 5); break;
+    case 'ArrowRight': if (panel.hidden && document.activeElement.tagName !== 'BUTTON') au.currentTime = Math.min(au.duration, au.currentTime + 5); break;
+  }
+});
+
+let idleTimer;
+function poke() {
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { if (!au.paused && panel.hidden) document.body.classList.add('idle'); }, 4000);
+}
+window.addEventListener('DOMContentLoaded', () => { $('usb').focus(); });
+
+au.onerror = () => { $('ttl').hidden = false; $('ttl').textContent += ' ⚠ 재생 오류(코덱/경로)'; document.body.classList.remove('idle'); };
+
+// ---- USB 폴더 탐색 (cordova-plugin-file) ----
+const br = $('browser'), bl = $('blist'), ROOT = 'file:///storage/';
+let bPath = ROOT;
+const rd = async url => {
+  const p = decodeURIComponent(url.replace('file://', ''));
+  const arr = JSON.parse(window.AndroidUSB.list(p));
+  const base = 'file://' + p.split('/').map(encodeURIComponent).join('/').replace(/\/?$/, '/');
+  return arr.map(o => ({ name: o.n, isDirectory: o.d, isFile: !o.d, nativeURL: base + encodeURIComponent(o.n) + (o.d ? '/' : '') }));
+};
+const row = (txt, fn) => { const d = document.createElement('div'); d.className = 'tr'; d.tabIndex = 0; d.innerHTML = `<span>${txt}</span>`; d.onclick = fn; d.onkeydown = e => { if (e.key === 'Enter') fn(); }; bl.appendChild(d); return d; };
+async function openDir(url) {
+  bPath = url; $('bpath').textContent = decodeURI(url.replace('file://', '')); bl.textContent = '';
+  let es = [];
+  try { es = await rd(url); } catch (e) { row('⚠ 폴더를 읽을 수 없음 (권한 허용 여부 확인) code=' + (e && e.code), () => {}); }
+  es = es.filter(e => !(url === ROOT && e.name === 'self')).sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true }));
+  let first = null;
+  if (url !== ROOT) { first = row('✔ 이 폴더의 음악 불러오기 (하위 3단계까지)', () => loadDir(url)); row('⬆ 상위 폴더', goUp); }
+  es.filter(e => e.isDirectory).forEach(e => { const r = row('📁 ' + e.name, () => openDir(e.nativeURL.endsWith('/') ? e.nativeURL : e.nativeURL + '/')); first = first || r; });
+  const n = es.filter(e => e.isFile && AUDIO_EXT.test(e.name)).length;
+  if (n) row('🎵 이 폴더 음악 파일 ' + n + '개').style.color = '#aaa';
+  if (first) first.focus();
+}
+function goUp() { if (bPath === ROOT) return closeBrowser(); openDir(bPath.replace(/[^\/]+\/$/, '').replace(/^file:\/\/\/?$/, ROOT).replace(/^file:\/\/\/storage\/?$/, ROOT)); }
+function closeBrowser() { br.hidden = true; $('usb').focus(); }
+async function scan(url, depth, out) {
+  let es; try { es = await rd(url); } catch (e) { return; }
+  for (const e of es) { if (e.isDirectory) { if (depth > 0) await scan(e.nativeURL, depth - 1, out); } else out.push(e); }
+}
+async function loadDir(url) {
+  statusEl.textContent = '검색 중...';
+  const all = []; await scan(url, 3, all);
+  const key = e => norm(decodeURI(e.nativeURL).replace(/\.[^.\/]+$/, ''));
+  const lrcs = new Map(); all.filter(e => /\.(lrc|txt)$/i.test(e.name)).forEach(e => lrcs.set(key(e), { name: e.name, url: e.nativeURL }));
+  all.filter(e => AUDIO_EXT.test(e.name)).sort((a, b) => decodeURI(a.nativeURL).localeCompare(decodeURI(b.nativeURL), 'ko', { numeric: true })).forEach(e => {
+    if (tracks.some(t => t.audio.url === e.nativeURL)) return;
+    tracks.push({ audio: { name: e.name, size: 0, url: e.nativeURL }, lrc: lrcs.get(key(e)) || null, title: e.name.replace(/\.[^.]+$/, '') });
+  });
+  buildOrder(0); renderList(); br.hidden = true;
+  statusEl.textContent = tracks.length ? `총 ${tracks.length}곡 불러옴 (가사 ${tracks.filter(t => t.lrc).length}개)` : '음악 파일을 찾지 못했습니다.';
+  if (tracks.length) { goBtn.disabled = false; goBtn.focus(); } else $('usb').focus();
+}
+$('usb').onclick = () => {
+  if (!window.AndroidUSB) { statusEl.textContent = '네이티브 앱에서만 동작합니다.'; return; }
+  br.hidden = false; openDir(ROOT);
+};
+window.__back = () => {
+  if (!br.hidden) { goUp(); return 'ok'; }
+  if (!panel.hidden && tracks.length > 0) { panel.hidden = true; $('pp').focus(); return 'ok'; }
+  if (panel.hidden) { panel.hidden = false; $('close').focus(); return 'ok'; }
+  return 'exit';
+};
+</script>
+</body>
+</html>
